@@ -4,7 +4,7 @@
  * Plugin URI:  http://www.forumcomm.com/
  * Author:      Forum Communications Company
  * Author URI:  http://www.forumcomm.com/
- * Version:     0.16.03.02
+ * Version:     0.16.04.02
  * Description: WP-CLI site deletion tool. Feed URL: example.com?feed=splogs
  * License:     GPL v2 or later
  * Text Domain: fcc-plugin-template
@@ -19,52 +19,64 @@ defined( 'ABSPATH' ) || exit;
 # Add's options page under tools
 --------------------------------------------------------------*/
 
-add_action('admin_menu', 'fcc_create_settings_menu');
+add_action('network_admin_menu', 'fcc_create_settings_menu');
 
 #create settings menu under tools
 function fcc_create_settings_menu(){
-  add_management_page(
+  add_submenu_page(
+    'settings.php',
     'FCC Site Deletion Tool',
     'FCC Site Deletion Tool',
-    'manage_options',
+    'manage_network',
     'fcc-site-deletion-tool',
     'fcc_site_options_page'
   );
 };
 
-add_action('admin_init', 'plugin_admin_init');
-function plugin_admin_init(){
-  register_setting( 'deletion_ids_group', 'deletion_ids');
-};
-
 #Options page html
 function fcc_site_options_page(){
-   ?>
+
+   if (is_multisite() && current_user_can('manage_network'))  {
+
+        if (isset($_POST['action']) && $_POST['action'] == 'update_delete_settings') {
+
+            //store option values in a variable
+            $network_settings = $_POST['network-settings'];
+
+            //save option values
+            update_site_option( 'deletion_ids', $network_settings );
+
+            //just assume it all went according to plan
+            echo '<div id="message" class="updated fade"><p><strong>List Updated!</strong></p></div>';
+
+      }//if POST
+
+      ?>
 
      <div class="wrap">
        <div class="card">
          <div class="inside">
-            <form action="options.php" method="post">
-                <?php settings_fields('deletion_ids_group'); ?>
-
+            <form method="post">
+                <input type="hidden" name="action" value="update_delete_settings" />
                 <h3>Site Deletion Tool</h3>
 
                 <table class="form-table">
                   <tr valign="top">
                     <th style="width:125px" scope="row">List of ID's to delete seperated by commas: </th>
-                    <!-- <td><input type="text" name="deletion_ids" value="<?php echo get_option('deletion_ids'); ?>" size="50"></td> -->
-                    <td><textarea type="text" name="deletion_ids" cols="36"><?php echo get_option('deletion_ids'); ?></textarea></td>
+                    <td><textarea type="text" name="network-settings" cols="36"><?php echo get_site_option('deletion_ids'); ?></textarea></td>
                   </tr>
                 </table>
 
-                <?php submit_button(); ?>
+                <input type="submit" class="button-primary" name="update_delete_settings" value="Save Settings" />
             </form>
         </div>
+        <p><a href="<?php echo network_site_url() . '?feed=splogs'; ?>" target="_blank"><?php echo network_site_url() . '?feed=splogs'; ?></a></p>
       </div>
     </div>
 
 <?php
-};
+  }
+}
 
 
 /*--------------------------------------------------------------
