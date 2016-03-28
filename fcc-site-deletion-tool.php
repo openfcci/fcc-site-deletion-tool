@@ -4,7 +4,7 @@
  * Plugin URI:  http://www.forumcomm.com/
  * Author:      Forum Communications Company
  * Author URI:  http://www.forumcomm.com/
- * Version:     0.16.04.02
+ * Version:     0.16.03.28
  * Description: WP-CLI site deletion tool. Feed URL: example.com?feed=splogs
  * License:     GPL v2 or later
  * Text Domain: fcc-plugin-template
@@ -41,7 +41,7 @@ function fcc_site_options_page(){
         if (isset($_POST['action']) && $_POST['action'] == 'update_delete_settings') {
 
             //store option values in a variable
-            $network_settings = $_POST['network-settings'];
+            $network_settings = preg_replace('/\s+/', '', sanitize_text_field( $_POST['network-settings'] ) );
 
             //save option values
             update_site_option( 'deletion_ids', $network_settings );
@@ -59,18 +59,19 @@ function fcc_site_options_page(){
             <form method="post">
                 <input type="hidden" name="action" value="update_delete_settings" />
                 <h3>Site Deletion Tool</h3>
-
+                <span class="description">Enter the IDs of the sites to be deleted. Separate IDs with commas (example: 4,5,6).</span><br><br>
                 <table class="form-table">
                   <tr valign="top">
-                    <th style="width:125px" scope="row">List of ID's to delete seperated by commas: </th>
-                    <td><textarea type="text" name="network-settings" cols="36"><?php echo get_site_option('deletion_ids'); ?></textarea></td>
+                    <textarea type="text" name="network-settings" cols="70"><?php echo get_site_option('deletion_ids'); ?></textarea>
                   </tr>
                 </table>
 
                 <input type="submit" class="button-primary" name="update_delete_settings" value="Save Settings" />
             </form>
         </div>
-        <p><a href="<?php echo network_site_url() . '?feed=splogs'; ?>" target="_blank"><?php echo network_site_url() . '?feed=splogs'; ?></a></p>
+        <br>
+        <hr>
+        <p><strong>Feed URL: </strong><a href="<?php echo network_site_url() . '?feed=splogs'; ?>" target="_blank"><?php echo network_site_url() . '?feed=splogs'; ?></a></p>
       </div>
     </div>
 
