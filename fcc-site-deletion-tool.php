@@ -4,7 +4,7 @@
  * Plugin URI:  http://www.forumcomm.com/
  * Author:      Forum Communications Company
  * Author URI:  http://www.forumcomm.com/
- * Version:     0.16.03.28
+ * Version:     1.16.07.18
  * Description: WP-CLI site deletion tool. Feed URL: example.com?feed=splogs
  * License:     GPL v2 or later
  * Text Domain: fcc-plugin-template
@@ -14,279 +14,160 @@
 # Exit if accessed directly
 defined( 'ABSPATH' ) || exit;
 
-
-/*--------------------------------------------------------------
-# Add's options page under tools
---------------------------------------------------------------*/
-
-add_action('network_admin_menu', 'fcc_create_settings_menu');
-
-#create settings menu under tools
-function fcc_create_settings_menu(){
-  add_submenu_page(
-    'settings.php',
-    'Site Deletion Tool',
-    'Site Deletion Tool',
-    'manage_network',
-    'fcc-site-deletion-tool',
-    'fcc_site_options_page'
-  );
-};
-
-#Options page html
-function fcc_site_options_page(){
-
-   if (is_multisite() && current_user_can('manage_network'))  {
-
-        if (isset($_POST['action']) && $_POST['action'] == 'update_delete_settings') {
-
-            //store option values in a variable
-            $deletion_ids = preg_replace('/\s+/', '', sanitize_text_field( $_POST['deletion-ids'] ) );
-            $whitelist_ids = preg_replace('/\s+/', '', sanitize_text_field( $_POST['whitelist-ids'] ) );
-
-            //save option values
-            update_site_option( 'deletion_ids', $deletion_ids );
-            update_site_option( 'whitelist_ids', $whitelist_ids );
-
-            //just assume it all went according to plan
-            echo '<div id="message" class="updated fade"><p><strong>List Updated!</strong></p></div>';
-
-      }//if POST
-
-      ?>
-     <div class="wrap">
-       <h2>Site Deletion Tool</h2>
-       <p><span class="description">Enter the IDs of the sites to be deleted or whitelisted against deletion. Separate IDs with commas (example: 4,5,6).</span></p>
-       <div class="card">
-         <div class="inside">
-            <form method="post">
-                <input type="hidden" name="action" value="update_delete_settings" />
-                <h3>Sites to Delete</h3>
-                <table class="form-table">
-                  <tr valign="top">
-                    <textarea type="text" name="deletion-ids" cols="70"><?php echo get_site_option('deletion_ids'); ?></textarea>
-                  </tr>
-                </table>
-                <p><strong>Deletion Feed URL: </strong><a href="<?php echo network_site_url() . '?feed=splogs'; ?>" target="_blank"><?php echo network_site_url() . '?feed=splogs'; ?></a></p>
-                <hr><br>
-                <h3>Whitelist</h3>
-                <table class="form-table">
-                  <tr valign="top">
-                    <textarea type="text" name="whitelist-ids" cols="70"><?php echo get_site_option('whitelist_ids'); ?></textarea>
-                  </tr>
-                </table>
-                <p><strong>Whitelist Feed URL: </strong><a href="<?php echo network_site_url() . '?feed=whitelist'; ?>" target="_blank"><?php echo network_site_url() . '?feed=whitelist'; ?></a></p>
-                <hr><br>
-                <input type="submit" class="button-primary" name="update_delete_settings" value="Save Settings" />
-            </form>
-        </div>
-        <br>
-      </div>
-    </div>
-
-<?php
-  }
-}
-
-
-/*--------------------------------------------------------------
-# WP-CLI Deletion Command
---------------------------------------------------------------*/
-
-if( defined( 'WP_CLI' ) && WP_CLI ) {
-
-        class Delete_Sites {
-
-                function start_delete(){
-                  # Set Up Colors
-                  $error = WP_CLI::colorize( "%RERROR%n" );
-                  $skipped = WP_CLI::colorize( "%BSKIPPED%n" );
-                  $deleted = WP_CLI::colorize( "%GDELETED%n" );
-
-                    # Whitelist the Main Site
-                    $main_site = array('1');
-                    # Get the JSON
-                    $whitelist_ids = file_get_contents(network_site_url().'?feed=whitelist');
-                    $deletion_ids = file_get_contents(network_site_url() . "?feed=splogs");
-                    # Decode to ARRAY
-                    $whitelist_ids = json_decode( $whitelist_ids, TRUE );
-                    $deletion_array = json_decode( $deletion_ids, TRUE );
-                    # Count total for progress bar
-                    $total_to_delete = count($deletion_array);
-
-                    # Merge main site ID into whitelist
-                    $whitelist_ids = array_merge($main_site, $whitelist_ids);
-                    WP_CLI::warning( "Whitelisted Sites: " . join(",",$whitelist_ids) );
-                    WP_CLI::warning( "Sites to be deleted: " . join(",",$deletion_array) );
-
-                    $notify = \WP_CLI\Utils\make_progress_bar( 'Deleting Sites', $total_to_delete );
-
-                    # Convert array to OBJECT
-                    $blogs = new stdClass();
-                    foreach ($deletion_array as $key => $value) {
-                      $blogs->$key = $value;
-                    }
-                    ### Start Blog Deletion ###
-                    if (!empty($blogs)) {
-
-                      #Blogs that are successfully deleted.
-                      $blog_success_count = 0;
-                      #blogs that will have an error.
-                      $blog_error_count = 0;
-
-                      #Start Deletion Loop
-                      foreach ($blogs as $blog) {
-                        if ( ! empty($blog) ) {
-                          #Get the blog details to test if it is a blog
-                          $blog_detail = get_blog_details( $blog );
-                          //$blogname = $blog_detail->blogname;
-                          $siteurl = WP_CLI::colorize( "%M" . $blog_detail->siteurl . "%n" );
-
-                          #If not a blog, output blog not found, else the blog is successfully deleted.
-                          if ( !$blog_detail ) {
-                            WP_CLI::line( $error . ":   Site " . $blog . " Not Found." );
-                            $blog_error_count++;
-                          } else if ( in_array( $blog, $whitelist_ids ) ) {
-                            # Skip Whitelisted Sites
-                            WP_CLI::line( $skipped . ": Site " . $blog . " (". $siteurl. ")" ." is whitelisted against deletion." );
-                            //WP_CLI::warning( " Site " . $blog . " (". $siteurl. ")" ." is whitelisted against deletion. (Skipped)" );
-                          } else {
-                            # Delete the site
-                            wpmu_delete_blog( $blog, true  );
-                            WP_CLI::line( $deleted . ": Site " . $blog . " (". $siteurl. ")" ." deleted." );
-                            //WP_CLI::success( $deleted . ": Site " . $blog . " (". $siteurl. ")" ." deleted." );
-                            $blog_success_count++;
-                          }
-                        }
-                        $notify->tick();
-                        //sleep(1);
-                      }
-                      $notify->finish();
-                    }
-                    #Output total number of blogs deleted and errors.
-                    WP_CLI::success($blog_success_count . " total blogs would have been deleted. " . $blog_error_count . " errors/blogs not found.");
-                } // End function start_delete
-                function test_delete(){
-                  # Set Up Colors
-                  $error = WP_CLI::colorize( "%RERROR%n" );
-                  $skipped = WP_CLI::colorize( "%BSKIPPED%n" );
-                  $deleted = WP_CLI::colorize( "%GDELETED%n" );
-
-                    # Whitelist the Main Site
-                    $main_site = array('1');
-                    # Get the JSON
-                    $whitelist_ids = file_get_contents(network_site_url().'?feed=whitelist');
-                    $deletion_ids = file_get_contents(network_site_url() . "?feed=splogs");
-                    # Decode to ARRAY
-                    $whitelist_ids = json_decode( $whitelist_ids, TRUE );
-                    $deletion_array = json_decode( $deletion_ids, TRUE );
-                    # Count total for progress bar
-                    $total_to_delete = count($deletion_array);
-
-                    # Merge main site ID into whitelist
-                    $whitelist_ids = array_merge($main_site, $whitelist_ids);
-                    WP_CLI::warning( "Whitelisted Sites: " . join(",",$whitelist_ids) );
-                    WP_CLI::warning( "Sites to be deleted: " . join(",",$deletion_array) );
-
-                    $notify = \WP_CLI\Utils\make_progress_bar( 'Deleting Sites', $total_to_delete );
-
-                    # Convert array to OBJECT
-                    $blogs = new stdClass();
-                    foreach ($deletion_array as $key => $value) {
-                      $blogs->$key = $value;
-                    }
-                    ### Start Blog Deletion ###
-                    if (!empty($blogs)) {
-
-                      #Blogs that are successfully deleted.
-                      $blog_success_count = 0;
-                      #blogs that will have an error.
-                      $blog_error_count = 0;
-
-                      #Start Deletion Loop
-                      foreach ($blogs as $blog) {
-                        if ( ! empty($blog) ) {
-                          #Get the blog details to test if it is a blog
-                          $blog_detail = get_blog_details( $blog );
-                          //$blogname = $blog_detail->blogname;
-                          $siteurl = WP_CLI::colorize( "%M" . $blog_detail->siteurl . "%n" );
-
-                          #If not a blog, output blog not found, else the blog is successfully deleted.
-                          if ( !$blog_detail ) {
-                            WP_CLI::line( $error . ":   Site " . $blog . " Not Found." );
-                            $blog_error_count++;
-                          } else if ( in_array( $blog, $whitelist_ids ) ) {
-                            # Skip Whitelisted Sites
-                            WP_CLI::line( $skipped . ": Site " . $blog . " (". $siteurl. ")" ." is whitelisted against deletion." );
-                            //WP_CLI::warning( " Site " . $blog . " (". $siteurl. ")" ." is whitelisted against deletion. (Skipped)" );
-                          } else {
-                            # Delete the site
-                            WP_CLI::line( $deleted . ": Site " . $blog . " (". $siteurl. ")" ." would have been deleted. (Test mode)" );
-                            //WP_CLI::success( $deleted . ": Site " . $blog . " (". $siteurl. ")" ." would have been deleted. (Test mode)" );
-                            $blog_success_count++;
-                          }
-                        }
-                        $notify->tick();
-                        //sleep(1);
-                      }
-                      $notify->finish();
-                    }
-                    #Output total number of blogs deleted and errors.
-                    WP_CLI::success($blog_success_count . " total blogs would have been deleted. " . $blog_error_count . " errors/blogs not found.");
-                } // End function test_delete
-        }
-
-        WP_CLI::add_command( 'delete_sites', 'Delete_Sites' );
-}
-
+# Declare Constants
+//define( 'FCCCLI__PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
+//define( 'FCCCLI__PLUGIN_DIR',  plugin_dir_url( __FILE__ ) );
 
 /*--------------------------------------------------------------
 # PLUGIN ACTIVATION/DEACTIVATION HOOKS
 --------------------------------------------------------------*/
 
- /**
-  * Plugin Activation Hook
-  */
- function fcc_site_deletion_tool_activation() {
-   # Flush our rewrite rules on activation.
-   flush_rewrite_rules();
- }
- register_activation_hook( __FILE__, 'fcc_site_deletion_tool_activation' );
+/**
+ * Plugin Activation Hook
+ * Flush our rewrite rules on activation.
+ * @since 0.16.03.02
+ * @version 1.16.07.18
+ */
+function fcc_site_deletion_tool_activation() {
+	flush_rewrite_rules();
+}
+register_activation_hook( __FILE__, 'fcc_site_deletion_tool_activation' );
 
- /**
-  * Plugin Deactivation Hook
-  */
- function fcc_site_deletion_tool_deactivation() {
-   # Flush our rewrite rules on deactivation.
-   flush_rewrite_rules();
- }
- register_deactivation_hook( __FILE__, 'fcc_site_deletion_tool_deactivation' );
+/**
+ * Plugin Deactivation Hook
+ * Flush our rewrite rules on deactivation.
+ * @since 0.16.03.02
+ * @version 1.16.07.18
+ */
+function fcc_site_deletion_tool_deactivation() {
+	flush_rewrite_rules();
+}
+register_deactivation_hook( __FILE__, 'fcc_site_deletion_tool_deactivation' );
 
- /*--------------------------------------------------------------
+
+/*--------------------------------------------------------------
+ # LOAD INCLUDES FILES
+ --------------------------------------------------------------*/
+
+# Site/Blog Deletion Commands
+require_once( plugin_dir_path( __FILE__ ) . '/includes/site-deletion.php' );
+
+# Orphan Table Commands
+require_once( plugin_dir_path( __FILE__ ) . '/includes/drop-orphan-tables.php' );
+
+# Orphan Upload Directory Commands
+require_once( plugin_dir_path( __FILE__ ) . '/includes/delete-orphan-directories.php' );
+
+
+/*--------------------------------------------------------------
+# Add's options page under tools
+--------------------------------------------------------------*/
+
+/**
+ * Create settings menu under tools
+ * @since 0.16.03.02
+ * @version 1.16.07.18
+ */
+function fcc_create_settings_menu() {
+	add_submenu_page(
+		'settings.php',
+		'Site Deletion Tool',
+		'Site Deletion Tool',
+		'manage_network',
+		'fcc-site-deletion-tool',
+		'fcc_site_options_page'
+	);
+};
+add_action( 'network_admin_menu', 'fcc_create_settings_menu' );
+
+
+/**
+ * Options Page HTML
+ * @since 0.16.03.02
+ * @version 1.16.07.18
+ */
+function fcc_site_options_page() {
+	if ( is_multisite() && current_user_can( 'manage_network' ) ) {
+		if ( isset( $_POST['action'] ) && 'update_delete_settings' == $_POST['action'] ) {
+
+			// Store option values in a variable
+			$deletion_ids = preg_replace( '/\s+/', '', sanitize_text_field( $_POST['deletion-ids'] ) );
+			$whitelist_ids = preg_replace( '/\s+/', '', sanitize_text_field( $_POST['whitelist-ids'] ) );
+
+			// Save option values
+			update_site_option( 'deletion_ids', $deletion_ids );
+			update_site_option( 'whitelist_ids', $whitelist_ids );
+
+			// Just assume it all went according to plan
+			echo '<div id="message" class="updated fade"><p><strong>List Updated!</strong></p></div>';
+
+		} // END if POST
+		?>
+		<div class="wrap">
+		 <h2>Site Deletion Tool</h2>
+		 <p><span class="description">Enter the IDs of the sites to be deleted or whitelisted against deletion. Separate IDs with commas (example: 4,5,6).</span></p>
+		 <div class="card">
+			 <div class="inside">
+					<form method="post">
+							<input type="hidden" name="action" value="update_delete_settings" />
+							<h3>Sites to Delete</h3>
+							<table class="form-table">
+								<tr valign="top">
+									<textarea type="text" name="deletion-ids" cols="70"><?php
+									echo get_site_option( 'deletion_ids' );
+									?></textarea>
+								</tr>
+							</table>
+							<p><strong>Deletion Feed URL: </strong><a href="<?php
+							echo network_site_url() . '?feed=splogs'; ?>" target="_blank"><?php echo network_site_url() . '?feed=splogs'; ?></a></p>
+							<hr><br>
+							<h3>Whitelist</h3>
+							<table class="form-table">
+								<tr valign="top">
+									<textarea type="text" name="whitelist-ids" cols="70"><?php
+									echo get_site_option( 'whitelist_ids' );
+									?></textarea>
+								</tr>
+							</table>
+							<p><strong>Whitelist Feed URL: </strong><a href="<?php echo network_site_url() . '?feed=whitelist'; ?>" target="_blank"><?php echo network_site_url() . '?feed=whitelist'; ?></a></p>
+							<hr><br>
+							<input type="submit" class="button-primary" name="update_delete_settings" value="Save Settings" />
+					</form>
+			</div>
+			<br>
+		</div>
+		</div>
+
+		<?php
+	}
+}
+
+/*--------------------------------------------------------------
  # JSON FEED
  --------------------------------------------------------------*/
 
- /**
-  * Add 'splogs' JSON Feed
-  *
-  * @since 0.16.03.02
-  * @version 0.16.03.28
-  */
- function fcc_splogs_do_json_feed(){
-   add_feed('splogs', 'add_splogs_feed');
-   add_feed('whitelist', 'add_whitelist_feed');
- }
- add_action('init', 'fcc_splogs_do_json_feed');
+/**
+ * Add 'splogs' JSON Feed
+ *
+ * @since 0.16.03.02
+ * @version 1.16.07.18
+ */
+function fcc_splogs_do_json_feed() {
+	add_feed( 'splogs', 'add_splogs_feed' );
+	add_feed( 'whitelist', 'add_whitelist_feed' );
+}
+add_action( 'init', 'fcc_splogs_do_json_feed' );
 
- /**
-  * Load JSON Feed Template
-  *
-  * @since 0.16.03.02
-  * @version 0.16.03.28
-  */
- function add_splogs_feed(){
-   load_template( plugin_dir_path( __FILE__ ) . 'template/feed-json.php' );
- }
- function add_whitelist_feed(){
-   load_template( plugin_dir_path( __FILE__ ) . 'template/whitelist-feed.php' );
- }
+/**
+ * Load JSON Feed Template
+ *
+ * @since 0.16.03.02
+ * @version 1.16.07.18
+ */
+function add_splogs_feed() {
+	load_template( plugin_dir_path( __FILE__ ) . 'template/feed-json.php' );
+}
+
+function add_whitelist_feed() {
+	load_template( plugin_dir_path( __FILE__ ) . 'template/whitelist-feed.php' );
+}
